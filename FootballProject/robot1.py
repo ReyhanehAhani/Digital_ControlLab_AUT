@@ -26,15 +26,17 @@ class MessageType(enum.IntEnum):
 
 
 class MyRobot1(RCJSoccerRobot):
-    BallPositionController = PID(1, 0, 0, 0, 0)
-    BallAngleCotrnoller =    PID(10, 0, 0, 0, 0)
-    GoalPositionCotrnoller = PID(1, 0, 0, 0, 0)
-    GoalAngleCotrnoller =    PID(10, 0, 0, 0, 0)
+    BallPositionController = PID(2, 5, 0.0005, 10, -10)
+    BallAngleCotrnoller = PID(20, 10, 0.00075, 10, -10)
+    GoalPositionCotrnoller = PID(15, 0, 0.002, 0, 0)
+    GoalAngleCotrnoller = PID(5, 30, 0.000045, 20, -20)
 
     def run(self):
         ball_data = None
         dt = None
-        follow_ball = True
+        heading_stage = 0
+        heading_stage_counter = 0
+        has_shooted = False
 
         while self.robot.step(TIME_STEP) != -1:
             if self.is_new_data():
@@ -42,7 +44,9 @@ class MyRobot1(RCJSoccerRobot):
 
                 while self.is_new_team_data():
                     team_data = self.get_new_team_data()  # noqa: F841
-                    # Do something with team data
+
+                    if data['waiting_for_kickoff']:
+                        heading_stage = 0
 
                 if self.is_new_ball_data():
                     ball_data = self.get_new_ball_data()
@@ -84,19 +88,33 @@ class MyRobot1(RCJSoccerRobot):
                 v_goal_position = self.GoalPositionCotrnoller.update(
                     e_goal_distance, dt)
 
+                vr = 0
+                vl = 0
+
+                if heading_stage == 1:
+                    self.BallPositionController.d_gain = 0.005
+                else: 
+                    self.BallPositionController.d_gain = 0.0005
+
                 if abs(e_ball_position) > 0.2:
                     self.send_data_to_team(MessageType.BALL_BY_OPPONENT)
-
-                w = v_ball_theta
-                v = v_ball_position
-                vr = (2 * v + 0.085 * w) / 0.04
-                vl = (2 * v - 0.085 * w) / 0.04
-
-                if abs(e_ball_position) < 0.02:
-                    w = v_goal_theta
-                    v = v_goal_position
+                if abs(e_ball_position) > 0.011 and heading_stage == 0:
+                    w = v_ball_theta
+                    v = v_ball_position
                     vr = (2 * v + 0.085 * w) / 0.04
                     vl = (2 * v - 0.085 * w) / 0.04
+                elif abs(heading) > 0.1:
+                    heading_stage = 1
+                    if heading > 0:
+                        vr = -v_goal_theta
+                        vl = v_goal_theta
+                    else: 
+                        vr = v_goal_theta
+                        vl = -v_goal_theta
+                else:
+                    heading_stage = 1
+                    vl = v_goal_position
+                    vr = v_goal_position
 
                 self.left_motor.setVelocity(vl)
                 self.right_motor.setVelocity(vr)
@@ -104,3 +122,9 @@ class MyRobot1(RCJSoccerRobot):
                 t2 = time.time()
                 dt = t2 - t1
                 time.sleep(dt - T)
+
+                if heading_stage != 0:
+                    heading_stage_counter += 1
+                    if heading_stage_counter == 40:
+                        heading_stage_counter = 0
+                        heading_stage = 0
